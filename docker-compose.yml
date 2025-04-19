@@ -1,0 +1,113 @@
+name: hardenediot-development
+
+services:
+  frontend:
+    container_name: hiot-frontend
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    image: ghcr.io/hardenediot/frontend:latest
+    env_file:
+      - .env
+    networks:
+      - main
+    expose:
+      - 3000
+    ports:
+      - 3001:3000
+
+  backend:
+    container_name: hiot-backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    image: ghcr.io/hardenediot/backend:latest
+    env_file:
+      - .env
+    secrets:
+      - postgres-pass
+      - mongo-pass
+    networks:
+      - main
+    expose:
+      - 3000
+    ports:
+      - 3002:3000
+
+  postgres:
+    container_name: hiot-postgres
+    restart: always
+    image: postgres:17
+    env_file:
+      - .env
+    secrets:
+      - postgres-pass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - main
+    expose:
+      - 5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready", "-d", "backend" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mongo:
+    container_name: hiot-mongo
+    restart: always
+    image: mongo
+    command: [ "mongod", "--config", "/etc/mongod.conf" ]
+    env_file:
+      - .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD_FILE: ${MONGO_PASSWORD_FILE}
+    secrets:
+      - mongo-pass
+    configs:
+      - source: mongo-conf
+        target: /etc/mongod.conf
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - main
+    expose:
+      - 27017
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+secrets:
+  postgres-pass:
+    file: ./secrets/postgres.secret
+  mongo-pass:
+    file: ./secrets/mongo.secret
+
+configs:
+  mongo-conf:
+    content: |
+      net:
+        port: 27017
+        bindIp: 0.0.0.0
+        ssl:
+          mode: disabled
+      security:
+        authorization: enabled
+
+volumes:
+  postgres-data:
+  mongo-data:
+
+
+networks:
+  main:
+    name: hiot
